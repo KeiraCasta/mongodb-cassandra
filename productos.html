@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>E-commerce - Catálogo de Productos (MongoDB)</title>
+    <link rel="stylesheet" href="http://40.233.7.61:3002/style.css">
+</head>
+<body>
+    <header>
+        <div class="header-content">
+            <h1>🛒 E-commerce - Catálogo de Productos (MongoDB)</h1>
+        </div>
+    </header>
+
+    <div class="container">
+        <div id="mensaje" class="alerta" style="display:none;"></div>
+
+        <section class="card">
+            <h2>Gestión de Inventario</h2>
+            <form id="formProducto">
+                <div class="form-grid">
+                    <div class="form-group"><label>SKU:</label><input type="text" id="sku" required placeholder="Ej. ELEC-001"></div>
+                    <div class="form-group"><label>Nombre:</label><input type="text" id="nombre" required placeholder="Nombre del producto"></div>
+                    <div class="form-group"><label>Categoría:</label><input type="text" id="categoria" required placeholder="Electrónica / Indumentaria"></div>
+                    <div class="form-group"><label>Precio ($):</label><input type="number" step="0.01" id="precio" required placeholder="0.00"></div>
+                    <div class="form-group"><label>Stock:</label><input type="number" id="stock" required placeholder="0"></div>
+                    <div class="form-group"><label>Atributos (RAM, Talla, etc.):</label><input type="text" id="atributos" placeholder="Ej. 16GB RAM / Talla M"></div>
+                </div>
+                <button type="submit" class="btn" id="btnGuardar">Guardar Producto</button>
+            </form>
+        </section>
+
+        <section class="card">
+            <h2>Productos Registrados</h2>
+            <div class="table-responsive">
+                <table>
+                    <thead>
+                        <tr><th>SKU</th><th>Nombre</th><th>Categoría</th><th>Precio</th><th>Stock</th><th>Atributos</th><th>Acciones</th></tr>
+                    </thead>
+                    <tbody id="tablaProductos"></tbody>
+                </table>
+            </div>
+        </section>
+    </div>
+
+    <script>
+        let editando = false;
+        let productosCache = [];
+
+        async function cargarProductos() {
+            try {
+                const res = await fetch('/api/productos');
+                const datos = await res.json();
+                productosCache = datos;
+                const tbody = document.getElementById('tablaProductos');
+                tbody.innerHTML = '';
+                
+                if (datos.length === 0) {
+                    tbody.innerHTML = `<tr><td colspan="7" style="text-align: center;">No hay productos registrados</td></tr>`;
+                    return;
+                }
+
+                datos.forEach((item, index) => {
+                    tbody.innerHTML += `
+                        <tr>
+                            <td><strong>${item.sku}</strong></td>
+                            <td>${item.nombre}</td>
+                            <td>${item.categoria}</td>
+                            <td>$${item.precio}</td>
+                            <td>${item.stock}</td>
+                            <td>${item.atributos || 'N/A'}</td>
+                            <td>
+                                <button class="btn-tabla" onclick="prepararEdicion(${index})" style="background: #f39c12; margin-right: 5px;">Editar</button>
+                                <button class="btn-tabla btn-eliminar" onclick="eliminarProducto('${item.sku}')">Eliminar</button>
+                            </td>
+                        </tr>`;
+                });
+            } catch (e) { mostrarAlerta('Error al cargar productos', 'error'); }
+        }
+
+        function prepararEdicion(index) {
+            const item = productosCache[index];
+            editando = true;
+            document.getElementById('sku').value = item.sku;
+            document.getElementById('sku').disabled = true; // El SKU no se puede modificar porque es la llave de búsqueda
+            document.getElementById('nombre').value = item.nombre;
+            document.getElementById('categoria').value = item.categoria;
+            document.getElementById('precio').value = item.precio;
+            document.getElementById('stock').value = item.stock;
+            document.getElementById('atributos').value = item.atributos || '';
+            document.getElementById('btnGuardar').innerText = 'Actualizar Producto';
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        document.getElementById('formProducto').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const skuVal = document.getElementById('sku').value;
+            const body = {
+                sku: skuVal,
+                nombre: document.getElementById('nombre').value,
+                categoria: document.getElementById('categoria').value,
+                precio: parseFloat(document.getElementById('precio').value),
+                stock: parseInt(document.getElementById('stock').value),
+                atributos: document.getElementById('atributos').value
+            };
+
+            const url = editando ? `/api/productos/${skuVal}` : '/api/productos';
+            const metodo = editando ? 'PUT' : 'POST';
+
+            try {
+                const res = await fetch(url, {
+                    method: metodo,
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+                
+                if(res.ok) {
+                    mostrarAlerta(editando ? 'Producto actualizado correctamente' : 'Producto guardado exitosamente', 'exito');
+                    document.getElementById('formProducto').reset();
+                    document.getElementById('sku').disabled = false;
+                    editando = false;
+                    document.getElementById('btnGuardar').innerText = 'Guardar Producto';
+                    cargarProductos();
+                } else {
+                    mostrarAlerta('Error al procesar la solicitud', 'error');
+                }
+            } catch (error) {
+                mostrarAlerta('Error de red', 'error');
+            }
+        });
+
+        async function eliminarProducto(sku) {
+            if(!confirm(`¿Estás seguro de eliminar el producto SKU: ${sku}?`)) return;
+            try {
+                const res = await fetch(`/api/productos/${sku}`, { method: 'DELETE' });
+                if(res.ok) {
+                    mostrarAlerta('Producto eliminado correctamente', 'exito');
+                    cargarProductos();
+                } else {
+                    mostrarAlerta('No se pudo eliminar el producto', 'error');
+                }
+            } catch (error) {
+                mostrarAlerta('Error de red al eliminar', 'error');
+            }
+        }
+
+        function mostrarAlerta(txt, tipo) {
+            const m = document.getElementById('mensaje');
+            m.innerText = txt; m.className = `alerta ${tipo}`; m.style.display = 'block';
+            setTimeout(() => m.style.display = 'none', 3000);
+        }
+
+        cargarProductos();
+    </script>
+</body>
+</html>
